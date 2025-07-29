@@ -82,6 +82,10 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(marketplaceReducer, initialState);
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  
+  // Use useSolanaProgram hook safely
+  const solanaProgram = useSolanaProgram();
+  
   const {
     program,
     initializeMarketplace: initMarketplace,
@@ -94,7 +98,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     fetchListing,
     lamportsToSol,
     solToLamports
-  } = useSolanaProgram();
+  } = solanaProgram;
 
   // Helper function to convert blockchain data to frontend types
   const convertListingToNFTListing = (listingAccount: ListingAccount, publicKey: string): NFTListing => {
@@ -260,8 +264,9 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = async () => {
-    if (!fetchMarketplace || !fetchAllListings) {
-      console.warn('Marketplace functions not available');
+    // Don't try to fetch if we don't have the necessary functions or wallet isn't connected
+    if (!fetchMarketplace || !fetchAllListings || !publicKey || !program) {
+      console.warn('Marketplace functions or wallet not available, skipping data refresh');
       return;
     }
 
@@ -269,16 +274,10 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_ERROR', payload: null });
 
     try {
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-
-      // Fetch marketplace data with timeout
-      const marketplaceData = await Promise.race([
-        fetchMarketplace(),
-        timeoutPromise
-      ]) as any;
+      console.log('Fetching marketplace data...');
+      
+      // First try to fetch marketplace account
+      const marketplaceData = await fetchMarketplace();
       if (marketplaceData) {
         const marketplace: Marketplace = {
           id: 'marketplace-1',
@@ -292,89 +291,101 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
           createdAt: new Date().toISOString() // Placeholder
         };
         dispatch({ type: 'SET_MARKETPLACE', payload: marketplace });
-
-        // Calculate stats from listings since marketplace doesn't track these
-        const listings = await Promise.race([
-          fetchAllListings(),
-          timeoutPromise
-        ]) as any;
-        const totalVolume = listings.reduce((sum, listing) => sum + lamportsToSol(listing.price), 0);
-        const stats: MarketplaceStats = {
-          totalListings: listings.length,
-          totalSales: 0, // Not tracked - would need event listening
-          totalVolume: totalVolume,
-          averagePrice: listings.length > 0 ? totalVolume / listings.length : 0,
-          uniqueOwners: new Set(listings.map(listing => listing.maker.toBase58())).size,
-          floorPrice: listings.length > 0 ? Math.min(...listings.map(listing => lamportsToSol(listing.price))) : 0
+        console.log('Marketplace data fetched successfully');
+      } else {
+        console.log('Marketplace account not found - may need to be initialized');
+        // Set some default stats so the UI doesn't break
+        const defaultStats: MarketplaceStats = {
+          totalListings: 0,
+          totalSales: 0,
+          totalVolume: 0,
+          averagePrice: 0,
+          uniqueOwners: 0,
+          floorPrice: 0
         };
-        dispatch({ type: 'SET_STATS', payload: stats });
+        dispatch({ type: 'SET_STATS', payload: defaultStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        return;
       }
 
-      // Fetch all listings (already fetched above for stats)
+      // Fetch all listings
+      console.log('Fetching all listings...');
       const listingAccounts = await fetchAllListings();
+      console.log(`Found ${listingAccounts.length} listings`);
+      
       const nftListings = listingAccounts.map(listingAccount => 
         convertListingToNFTListing(listingAccount, listingAccount.publicKey.toBase58())
       );
       dispatch({ type: 'SET_LISTINGS', payload: nftListings });
 
+      // Calculate stats from listings
+      const totalVolume = listingAccounts.reduce((sum, listing) => sum + lamportsToSol(listing.price), 0);
+      const stats: MarketplaceStats = {
+        totalListings: listingAccounts.length,
+        totalSales: 0, // Not tracked - would need event listening
+        totalVolume: totalVolume,
+        averagePrice: listingAccounts.length > 0 ? totalVolume / listingAccounts.length : 0,
+        uniqueOwners: new Set(listingAccounts.map(listing => listing.maker.toBase58())).size,
+        floorPrice: listingAccounts.length > 0 ? Math.min(...listingAccounts.map(listing => lamportsToSol(listing.price))) : 0
+      };
+      dispatch({ type: 'SET_STATS', payload: stats });
+
       // Update user portfolio if wallet is connected
-      if (publicKey) {
-        const userListings = nftListings.filter(listing => listing.seller === publicKey.toBase58());
-        const userPortfolio: UserPortfolio = {
-          ownedNFTs: [], // TODO: Fetch user's NFTs
-          listedNFTs: userListings,
-          totalValue: userListings.reduce((sum, listing) => sum + listing.price, 0),
-          totalListings: userListings.length
-        };
-        dispatch({ type: 'SET_USER_PORTFOLIO', payload: userPortfolio });
-      }
+      const userListings = nftListings.filter(listing => listing.seller === publicKey.toBase58());
+      const userPortfolio: UserPortfolio = {
+        ownedNFTs: [], // TODO: Fetch user's NFTs
+        listedNFTs: userListings,
+        totalValue: userListings.reduce((sum, listing) => sum + listing.price, 0),
+        totalListings: userListings.length
+      };
+      dispatch({ type: 'SET_USER_PORTFOLIO', payload: userPortfolio });
+
+      console.log('Marketplace data refresh completed successfully');
 
     } catch (error: any) {
       console.error('Error refreshing data:', error);
-      const errorMessage = error.message || 'Failed to refresh marketplace data';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
       
-      // If marketplace doesn't exist, show helpful message
+      // Show user-friendly error messages
       if (error.message?.includes('Account does not exist')) {
         dispatch({ type: 'SET_ERROR', payload: 'Marketplace not initialized. Please initialize the marketplace first.' });
-      } else if (error.message?.includes('timeout')) {
-        dispatch({ type: 'SET_ERROR', payload: 'Network timeout. Please check your connection and try again.' });
+      } else if (error.message?.includes('timeout') || error.message?.includes('fetch')) {
+        dispatch({ type: 'SET_ERROR', payload: 'Network error. Please check your connection and try again.' });
       } else {
-        // Still show the app even if marketplace data fails to load
-        console.warn('Marketplace data unavailable, showing app without blockchain data');
-        dispatch({ type: 'SET_ERROR', payload: null });
+        // For other errors, still show the app but with an error message
+        dispatch({ type: 'SET_ERROR', payload: `Error loading marketplace data: ${error.message}` });
+        console.warn('Marketplace data unavailable, showing app with limited functionality');
       }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
-  // Load marketplace data when wallet connects
+  // Load marketplace data when wallet connects (but only if program is available)
   useEffect(() => {
-    if (publicKey && connection) {
-      console.log('Wallet connected, loading marketplace data...');
-      // Add a small delay to ensure wallet is fully connected
+    if (publicKey && connection && program) {
+      console.log('Wallet and program ready, loading marketplace data...');
+      // Add a delay to ensure everything is properly initialized
       const timeout = setTimeout(() => {
         refreshData().catch((error) => {
           console.warn('Failed to load marketplace data on wallet connect:', error);
           // Don't block the UI if marketplace data fails to load
-          // Just show a warning toast
-          if (!error.message?.includes('timeout')) {
-            toast.error('Failed to load marketplace data. Some features may be limited.');
-          }
+          // The error is already handled in refreshData
         });
-      }, 1000); // Increased delay to 1 second
+      }, 2000); // 2 second delay to ensure everything is ready
       
       return () => clearTimeout(timeout);
     } else if (!publicKey) {
       // Clear data when wallet disconnects
+      console.log('Wallet disconnected, clearing marketplace data');
       dispatch({ type: 'SET_MARKETPLACE', payload: null as any });
       dispatch({ type: 'SET_LISTINGS', payload: [] });
       dispatch({ type: 'SET_STATS', payload: null as any });
       dispatch({ type: 'SET_USER_PORTFOLIO', payload: null as any });
       dispatch({ type: 'SET_ERROR', payload: null });
+    } else if (publicKey && !program) {
+      console.log('Wallet connected but program not ready yet...');
     }
-  }, [publicKey, connection]);
+  }, [publicKey, connection, program]);
 
   const contextValue: MarketplaceContextType = {
     ...state,

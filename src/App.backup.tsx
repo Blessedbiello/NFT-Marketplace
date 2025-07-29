@@ -13,6 +13,7 @@ import { Favorites } from './components/favorites/Favorites';
 import { useMobileViewportHeight } from './components/mobile/MobileOptimizations';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { toast } from 'react-hot-toast';
+import { WalletDebug } from './components/debug/WalletDebug';
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
@@ -146,6 +147,7 @@ function AppContent() {
         
         <main className="flex-1 p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
+            <WalletDebug />
             {renderCurrentView()}
           </div>
         </main>
@@ -184,11 +186,12 @@ function App() {
   return (
     <ErrorBoundary>
       <WalletContextProvider>
-        <MarketplaceProvider>
-          <FavoritesProvider>
-            <AppContent />
-          </FavoritesProvider>
-        </MarketplaceProvider>
+        <div className="min-h-screen bg-dark-gradient">
+          <div className="p-8">
+            <h1 className="text-3xl font-bold text-white mb-4">NFT Nexus</h1>
+            <WalletDebug />
+          </div>
+        </div>
       </WalletContextProvider>
     </ErrorBoundary>
   );

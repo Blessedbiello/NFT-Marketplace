@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { WalletContextProvider } from './contexts/WalletContext';
-import { MarketplaceProvider } from './contexts/MarketplaceContext';
+import { MockMarketplaceProvider } from './contexts/MockMarketplaceContext';
 import { FavoritesProvider } from './contexts/FavoritesContext';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -81,7 +81,6 @@ class ErrorBoundary extends React.Component {
 function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
-  const [appError, setAppError] = useState<string | null>(null);
   const { connected, connecting, disconnecting } = useWallet();
   
   // Initialize mobile viewport height
@@ -90,12 +89,6 @@ function AppContent() {
   // Debug wallet connection state
   useEffect(() => {
     console.log('Wallet state changed:', { connected, connecting, disconnecting });
-    if (connecting) {
-      console.log('Wallet is connecting...');
-    }
-    if (connected) {
-      console.log('Wallet connected successfully');
-    }
   }, [connected, connecting, disconnecting]);
 
   const renderCurrentView = () => {
@@ -184,11 +177,11 @@ function App() {
   return (
     <ErrorBoundary>
       <WalletContextProvider>
-        <MarketplaceProvider>
+        <MockMarketplaceProvider>
           <FavoritesProvider>
             <AppContent />
           </FavoritesProvider>
-        </MarketplaceProvider>
+        </MockMarketplaceProvider>
       </WalletContextProvider>
     </ErrorBoundary>
   );
