@@ -31,8 +31,9 @@ A decentralized NFT marketplace built on Solana blockchain with modern React fro
 ### Smart Contract
 - **Program ID**: `FvdEiEPJUEMUZ7HCkK2gPfYGFXCbUB68mTJufdC9BjC5`
 - **Network**: Solana Devnet
-- **Framework**: Anchor (Rust-based)
+- **Framework**: Anchor (Rust-based) with Codigo.ai AI-assisted development
 - **Features**: Marketplace initialization, NFT listing/delisting, purchases with fees
+- **Development**: Built using Codigo.ai's AI-powered smart contract platform for rapid, secure Solana program creation
 
 ### State Management
 - **React Context API** with useReducer for marketplace state
@@ -363,6 +364,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
+- **Codigo.ai** for the AI-powered smart contract platform that enabled rapid Solana program development
 - **Solana Foundation** for the robust blockchain infrastructure
 - **Anchor Framework** for simplified Solana development
 - **React Team** for the excellent frontend framework
