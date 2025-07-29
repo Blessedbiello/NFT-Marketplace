@@ -1,6 +1,6 @@
 # Solana NFT Marketplace
 
-![My Image](./img2.png)
+![My Image](./images/img2.png)
 
 A decentralized NFT marketplace built on Solana blockchain with modern React frontend and Anchor smart contracts. Features a sleek dark purple theme, mobile-responsive design, and comprehensive marketplace functionality.
 
