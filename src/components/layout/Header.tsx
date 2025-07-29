@@ -9,9 +9,17 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuToggle }: HeaderProps) {
-  const { publicKey, connected } = useWallet();
-  const { stats } = useMarketplace();
+  const { publicKey, connected, connecting, disconnecting } = useWallet();
+  const { stats, error: marketplaceError, loading } = useMarketplace();
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Show connection status
+  const getConnectionStatus = () => {
+    if (connecting) return 'Connecting...';
+    if (disconnecting) return 'Disconnecting...';
+    if (connected && publicKey) return `Connected: ${publicKey.toBase58().slice(0, 8)}...`;
+    return 'Not Connected';
+  };
 
   return (
     <header className="glass sticky top-0 z-50 border-b border-primary-800/30">
@@ -52,16 +60,35 @@ export function Header({ onMenuToggle }: HeaderProps) {
 
           {/* Right section */}
           <div className="flex items-center space-x-4">
-            {connected && stats && (
-              <div className="hidden lg:flex items-center space-x-4 text-sm text-gray-300">
-                <div className="px-3 py-1 bg-dark-400/50 rounded-lg border border-primary-800/30">
-                  <span className="text-primary-400">Volume:</span> {stats.totalVolume.toFixed(1)} SOL
-                </div>
-                <div className="px-3 py-1 bg-dark-400/50 rounded-lg border border-primary-800/30">
-                  <span className="text-primary-400">Floor:</span> {stats.floorPrice} SOL
-                </div>
+            {/* Connection Status */}
+            <div className="hidden md:flex items-center space-x-3 text-sm">
+              <div className={`px-3 py-1 rounded-lg border ${
+                connected 
+                  ? 'bg-green-900/30 border-green-500/30 text-green-400' 
+                  : connecting 
+                    ? 'bg-yellow-900/30 border-yellow-500/30 text-yellow-400'
+                    : 'bg-red-900/30 border-red-500/30 text-red-400'
+              }`}>
+                <span className="text-xs">{getConnectionStatus()}</span>
               </div>
-            )}
+              
+              {connected && stats && !loading && (
+                <div className="flex items-center space-x-3 text-gray-300">
+                  <div className="px-3 py-1 bg-dark-400/50 rounded-lg border border-primary-800/30">
+                    <span className="text-primary-400">Volume:</span> {stats.totalVolume.toFixed(1)} SOL
+                  </div>
+                  <div className="px-3 py-1 bg-dark-400/50 rounded-lg border border-primary-800/30">
+                    <span className="text-primary-400">Floor:</span> {stats.floorPrice} SOL
+                  </div>
+                </div>
+              )}
+              
+              {marketplaceError && (
+                <div className="px-2 py-1 bg-red-900/20 border border-red-500/30 rounded text-red-400 text-xs">
+                  Error loading data
+                </div>
+              )}
+            </div>
 
             {connected && (
               <button className="p-2 rounded-lg hover:bg-dark-300/50 transition-colors relative">

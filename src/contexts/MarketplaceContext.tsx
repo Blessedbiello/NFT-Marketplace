@@ -260,14 +260,25 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = async () => {
-    if (!fetchMarketplace || !fetchAllListings) return;
+    if (!fetchMarketplace || !fetchAllListings) {
+      console.warn('Marketplace functions not available');
+      return;
+    }
 
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
 
     try {
-      // Fetch marketplace data
-      const marketplaceData = await fetchMarketplace();
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+
+      // Fetch marketplace data with timeout
+      const marketplaceData = await Promise.race([
+        fetchMarketplace(),
+        timeoutPromise
+      ]) as any;
       if (marketplaceData) {
         const marketplace: Marketplace = {
           id: 'marketplace-1',
@@ -283,7 +294,10 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_MARKETPLACE', payload: marketplace });
 
         // Calculate stats from listings since marketplace doesn't track these
-        const listings = await fetchAllListings();
+        const listings = await Promise.race([
+          fetchAllListings(),
+          timeoutPromise
+        ]) as any;
         const totalVolume = listings.reduce((sum, listing) => sum + lamportsToSol(listing.price), 0);
         const stats: MarketplaceStats = {
           totalListings: listings.length,
@@ -323,6 +337,12 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       // If marketplace doesn't exist, show helpful message
       if (error.message?.includes('Account does not exist')) {
         dispatch({ type: 'SET_ERROR', payload: 'Marketplace not initialized. Please initialize the marketplace first.' });
+      } else if (error.message?.includes('timeout')) {
+        dispatch({ type: 'SET_ERROR', payload: 'Network timeout. Please check your connection and try again.' });
+      } else {
+        // Still show the app even if marketplace data fails to load
+        console.warn('Marketplace data unavailable, showing app without blockchain data');
+        dispatch({ type: 'SET_ERROR', payload: null });
       }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -331,10 +351,30 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
 
   // Load marketplace data when wallet connects
   useEffect(() => {
-    if (publicKey) {
-      refreshData();
+    if (publicKey && connection) {
+      console.log('Wallet connected, loading marketplace data...');
+      // Add a small delay to ensure wallet is fully connected
+      const timeout = setTimeout(() => {
+        refreshData().catch((error) => {
+          console.warn('Failed to load marketplace data on wallet connect:', error);
+          // Don't block the UI if marketplace data fails to load
+          // Just show a warning toast
+          if (!error.message?.includes('timeout')) {
+            toast.error('Failed to load marketplace data. Some features may be limited.');
+          }
+        });
+      }, 1000); // Increased delay to 1 second
+      
+      return () => clearTimeout(timeout);
+    } else if (!publicKey) {
+      // Clear data when wallet disconnects
+      dispatch({ type: 'SET_MARKETPLACE', payload: null as any });
+      dispatch({ type: 'SET_LISTINGS', payload: [] });
+      dispatch({ type: 'SET_STATS', payload: null as any });
+      dispatch({ type: 'SET_USER_PORTFOLIO', payload: null as any });
+      dispatch({ type: 'SET_ERROR', payload: null });
     }
-  }, [publicKey]);
+  }, [publicKey, connection]);
 
   const contextValue: MarketplaceContextType = {
     ...state,
