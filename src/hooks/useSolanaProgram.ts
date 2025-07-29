@@ -10,8 +10,65 @@ const PROGRAM_ID = new PublicKey(
   import.meta.env.VITE_PROGRAM_ID || 'FvdEiEPJUEMUZ7HCkK2gPfYGFXCbUB68mTJufdC9BjC5'
 );
 
-// Use the imported IDL - cast as Idl type for TypeScript
-const MARKETPLACE_IDL = MarketplaceIDL as Idl;
+// Fix the IDL format by merging accounts with their type definitions
+const fixIDLFormat = (idl: any): Idl => {
+  const fixedIDL = JSON.parse(JSON.stringify(idl));
+  
+  // Find type definitions for accounts
+  const typeDefinitions: Record<string, any> = {};
+  if (fixedIDL.types && Array.isArray(fixedIDL.types)) {
+    fixedIDL.types.forEach((type: any) => {
+      if (type.name) {
+        typeDefinitions[type.name] = type;
+      }
+    });
+  }
+  
+  // Fix accounts section by adding type info and calculating sizes
+  if (fixedIDL.accounts && Array.isArray(fixedIDL.accounts)) {
+    fixedIDL.accounts = fixedIDL.accounts.map((account: any) => {
+      // Find the corresponding type definition
+      const typeDef = typeDefinitions[account.name];
+      
+      if (typeDef && typeDef.type) {
+        // Add type information
+        account.type = typeDef.type;
+        
+        // Calculate size based on fields
+        let size = 8; // Discriminator
+        if (typeDef.type.fields && Array.isArray(typeDef.type.fields)) {
+          typeDef.type.fields.forEach((field: any) => {
+            switch (field.type) {
+              case 'pubkey': size += 32; break;
+              case 'u64': case 'i64': size += 8; break;
+              case 'u32': case 'i32': size += 4; break;
+              case 'u16': case 'i16': size += 2; break;
+              case 'u8': case 'i8': case 'bool': size += 1; break;
+              default: size += 8; // Conservative estimate
+            }
+          });
+        }
+        account.size = size;
+      } else {
+        // Fallback for unknown accounts
+        account.size = 1000;
+      }
+      
+      return account;
+    });
+  }
+  
+  return fixedIDL as Idl;
+};
+
+// Use the original IDL first, then try fixed version if needed
+let MARKETPLACE_IDL: Idl;
+try {
+  MARKETPLACE_IDL = MarketplaceIDL as Idl;
+} catch (error) {
+  console.log('IDL needs format fixing, applying compatibility fixes...');
+  MARKETPLACE_IDL = fixIDLFormat(MarketplaceIDL);
+}
 
 // Default marketplace name for PDA derivation
 const DEFAULT_MARKETPLACE_NAME = import.meta.env.VITE_MARKETPLACE_NAME || 'NFT-Nexus';
@@ -73,7 +130,36 @@ export function useSolanaProgram() {
 
   const program = useMemo(() => {
     if (!provider) return null;
-    return new Program(MARKETPLACE_IDL, PROGRAM_ID, provider);
+    
+    try {
+      // Create the program with error handling
+      console.log('Creating Anchor program with IDL...');
+      
+      // Try with original IDL first
+      let prog;
+      try {
+        prog = new Program(MARKETPLACE_IDL, PROGRAM_ID, provider);
+      } catch (idlError) {
+        console.log('Original IDL failed, trying with fixed format...');
+        const fixedIDL = fixIDLFormat(MarketplaceIDL);
+        prog = new Program(fixedIDL, PROGRAM_ID, provider);
+      }
+      
+      console.log('Anchor program created successfully');
+      return prog;
+    } catch (error) {
+      console.error('Error creating Anchor program:', error);
+      console.error('Provider:', provider);
+      console.error('Program ID:', PROGRAM_ID.toBase58());
+      
+      // Log the specific error details
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      
+      return null;
+    }
   }, [provider]);
 
   // PDA derivation functions
