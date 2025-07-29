@@ -26,7 +26,11 @@ import { ListNFTModal } from '../nft/ListNFTModal';
 import { NFTListing } from '../../types/marketplace';
 import { PortfolioTabs } from './PortfolioTabs';
 
-export function Portfolio() {
+interface PortfolioProps {
+  onViewChange?: (view: string) => void;
+}
+
+export function Portfolio({ onViewChange }: PortfolioProps = {}) {
   const { connected } = useWallet();
   const { listings, listNFT, delistNFT } = useMarketplace();
   const [activeTab, setActiveTab] = useState<'owned' | 'listed' | 'purchases' | 'analytics'>('owned');

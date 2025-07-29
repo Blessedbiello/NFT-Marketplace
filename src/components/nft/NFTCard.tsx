@@ -85,7 +85,14 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
               </p>
             )}
           </div>
-          <button className="ml-2 p-1 hover:bg-dark-300/50 rounded-lg transition-colors">
+          <button 
+            className="ml-2 p-1 hover:bg-dark-300/50 rounded-lg transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(`https://explorer.solana.com/address/${nft.nftMint}?cluster=devnet`, '_blank');
+            }}
+            title="View on Solana Explorer"
+          >
             <ExternalLink className="h-4 w-4 text-gray-400" />
           </button>
         </div>

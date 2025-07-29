@@ -1,6 +1,10 @@
 import React from 'react';
 import { ComprehensiveAdminPanel } from './ComprehensiveAdminPanel';
 
-export function AdminPanel() {
+interface AdminPanelProps {
+  onViewChange?: (view: string) => void;
+}
+
+export function AdminPanel({ onViewChange }: AdminPanelProps = {}) {
   return <ComprehensiveAdminPanel />;
 }

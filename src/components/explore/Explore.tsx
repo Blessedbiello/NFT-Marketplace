@@ -5,7 +5,11 @@ import { NFTCard } from '../nft/NFTCard';
 import { Button } from '../common/Button';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 
-export function Explore() {
+interface ExploreProps {
+  onViewChange?: (view: string) => void;
+}
+
+export function Explore({ onViewChange }: ExploreProps = {}) {
   const { listings, loading, purchaseNFT, stats } = useMarketplace();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState('newest');
@@ -252,7 +256,7 @@ export function Explore() {
           <NFTCard
             key={nft.id}
             nft={nft}
-            onBuy={purchaseNFT}
+            onBuy={(nft) => purchaseNFT(nft.id)}
           />
         ))}
       </div>

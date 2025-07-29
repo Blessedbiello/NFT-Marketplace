@@ -5,7 +5,11 @@ import { StatsCard } from './StatsCard';
 import { NFTCard } from '../nft/NFTCard';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 
-export function Dashboard() {
+interface DashboardProps {
+  onViewChange?: (view: string) => void;
+}
+
+export function Dashboard({ onViewChange }: DashboardProps = {}) {
   const { stats, listings, loading, purchaseNFT } = useMarketplace();
 
   if (loading && !stats) {
@@ -35,11 +39,17 @@ export function Dashboard() {
             Explore unique artworks and join a vibrant community of creators and collectors.
           </p>
           <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 animate-slide-up" style={{animationDelay: '0.2s'}}>
-            <button className="btn-primary px-6 py-3">
+            <button 
+              className="btn-primary px-6 py-3"
+              onClick={() => onViewChange?.('explore')}
+            >
               Explore NFTs
             </button>
-            <button className="btn-secondary border-2 border-white/30 hover:border-white/50 px-6 py-3">
-              Create Account
+            <button 
+              className="btn-secondary border-2 border-white/30 hover:border-white/50 px-6 py-3"
+              onClick={() => onViewChange?.('portfolio')}
+            >
+              View Portfolio
             </button>
           </div>
         </div>
@@ -63,8 +73,8 @@ export function Dashboard() {
             icon={ShoppingBag}
           />
           <StatsCard
-            title="Active Users"
-            value={stats.activeUsers.toLocaleString()}
+            title="Unique Owners"
+            value={stats.uniqueOwners.toLocaleString()}
             change="+8.1% from last week"
             changeType="positive"
             icon={Users}
@@ -83,7 +93,10 @@ export function Dashboard() {
       <div>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Featured NFTs</h2>
-          <button className="text-primary-400 hover:text-primary-300 font-medium transition-colors">
+          <button 
+            className="text-primary-400 hover:text-primary-300 font-medium transition-colors"
+            onClick={() => onViewChange?.('explore')}
+          >
             View All →
           </button>
         </div>
@@ -93,7 +106,7 @@ export function Dashboard() {
             <NFTCard
               key={nft.id}
               nft={nft}
-              onBuy={purchaseNFT}
+              onBuy={(nft) => purchaseNFT(nft.id)}
             />
           ))}
         </div>
@@ -103,7 +116,10 @@ export function Dashboard() {
       <div>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-white">Trending Collections</h2>
-          <button className="text-primary-400 hover:text-primary-300 font-medium transition-colors">
+          <button 
+            className="text-primary-400 hover:text-primary-300 font-medium transition-colors"
+            onClick={() => onViewChange?.('trending')}
+          >
             View All →
           </button>
         </div>

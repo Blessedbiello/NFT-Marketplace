@@ -22,21 +22,21 @@ function App() {
   const renderCurrentView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onViewChange={setCurrentView} />;
       case 'explore':
       case 'trending':
-        return <Explore />;
+        return <Explore onViewChange={setCurrentView} />;
       case 'my-nfts':
       case 'my-listings':
       case 'portfolio':
-        return <Portfolio />;
+        return <Portfolio onViewChange={setCurrentView} />;
       case 'favorites':
-        return <Favorites />;
+        return <Favorites onViewChange={setCurrentView} />;
       case 'admin':
       case 'settings':
-        return <AdminPanel />;
+        return <AdminPanel onViewChange={setCurrentView} />;
       default:
-        return <Dashboard />;
+        return <Dashboard onViewChange={setCurrentView} />;
     }
   };
 

@@ -5,7 +5,11 @@ import { useMarketplace } from '../../contexts/MarketplaceContext';
 import { NFTCard } from '../nft/NFTCard';
 import { Button } from '../common/Button';
 
-export function Favorites() {
+interface FavoritesProps {
+  onViewChange?: (view: string) => void;
+}
+
+export function Favorites({ onViewChange }: FavoritesProps = {}) {
   const { favorites, clearFavorites } = useFavorites();
   const { purchaseNFT } = useMarketplace();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -137,7 +141,7 @@ export function Favorites() {
               <NFTCard
                 key={nft.id}
                 nft={nft}
-                onBuy={purchaseNFT}
+                onBuy={(nft) => purchaseNFT(nft.id)}
                 showActions={true}
               />
             ))}
