@@ -21,6 +21,17 @@ import {
   WalletConnectionError 
 } from '../utils/errors';
 import { TRANSACTION_SAFETY, SUCCESS_MESSAGES } from '../utils/constants';
+import { getCompleteNFTMetadata, batchFetchNFTMetadata } from '../utils/metaplex';
+import { fetchUserNFTs, userNFTToListing, calculatePortfolioValue } from '../utils/userNFTs';
+import { 
+  fallbackMarketplace, 
+  fallbackStats, 
+  fallbackUserPortfolio, 
+  generateDemoListings,
+  shouldUseFallbackMode,
+  getFallbackErrorMessage 
+} from '../utils/fallbackData';
+import { debugConnectionState, debugError } from '../utils/debug';
 
 interface MarketplaceState {
   marketplace: Marketplace | null;
@@ -120,19 +131,37 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     solToLamports
   } = solanaProgram;
 
-  // Helper function to convert blockchain data to frontend types
-  const convertListingToNFTListing = (listingAccount: ListingAccount, publicKey: string): NFTListing => {
+  // Helper function to convert blockchain data to frontend types with real metadata
+  const convertListingToNFTListing = async (
+    listingAccount: ListingAccount, 
+    publicKey: string,
+    metadataMap?: Map<string, { onChain: any; json: any }>
+  ): Promise<NFTListing> => {
+    const mintString = listingAccount.nftMint.toBase58();
+    
+    // Try to get metadata from cache first
+    let metadata = metadataMap?.get(mintString);
+    
+    // If not in cache, fetch it
+    if (!metadata) {
+      try {
+        metadata = await getCompleteNFTMetadata(connection, listingAccount.nftMint);
+      } catch (error) {
+        console.warn(`Failed to fetch metadata for ${mintString}:`, error);
+      }
+    }
+
     return {
       id: publicKey,
-      marketplace: 'marketplace-1', // Default marketplace ID
-      nftMint: listingAccount.nftMint.toBase58(),
+      marketplace: 'marketplace-1',
+      nftMint: mintString,
       seller: listingAccount.maker.toBase58(),
       price: lamportsToSol(listingAccount.price),
-      createdAt: Date.now(), // Use timestamp in milliseconds
-      metadata: {
-        name: `NFT ${publicKey.slice(0, 8)}`, // Placeholder - fetch real metadata
-        description: 'NFT from Solana blockchain',
-        image: `https://images.pexels.com/photos/400000${Math.floor(Math.random() * 10)}/pexels-photo-400000${Math.floor(Math.random() * 10)}.jpeg?auto=compress&cs=tinysrgb&w=800`,
+      createdAt: Date.now(), // TODO: Get actual creation timestamp from events
+      metadata: metadata?.json || {
+        name: `NFT ${publicKey.slice(0, 8)}`,
+        description: 'NFT metadata unavailable',
+        image: '', // No fallback image for now
         attributes: []
       }
     };
@@ -345,6 +374,23 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     // Don't try to fetch if we don't have the necessary functions or wallet isn't connected
     if (!fetchMarketplace || !fetchAllListings || !publicKey || !program) {
       console.warn('Marketplace functions or wallet not available, skipping data refresh');
+      // Set default empty state so UI doesn't hang
+      const defaultStats: MarketplaceStats = {
+        totalListings: 0,
+        totalSales: 0,
+        totalVolume: 0,
+        averagePrice: 0,
+        uniqueOwners: 0,
+        floorPrice: 0
+      };
+      dispatch({ type: 'SET_STATS', payload: defaultStats });
+      dispatch({ type: 'SET_LISTINGS', payload: [] });
+      dispatch({ type: 'SET_USER_PORTFOLIO', payload: {
+        ownedNFTs: [],
+        listedNFTs: [],
+        totalValue: 0,
+        totalListings: 0
+      } as UserPortfolio });
       return;
     }
 
@@ -372,18 +418,19 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
         console.log('Marketplace data fetched successfully');
       } else {
         console.log('Marketplace account not found - may need to be initialized');
-        // Set some default stats so the UI doesn't break
-        const defaultStats: MarketplaceStats = {
+        // Create empty marketplace for UI but still continue to load listings/portfolio
+        const emptyMarketplace: Marketplace = {
+          id: 'marketplace-not-initialized',
+          name: 'Marketplace (Not Initialized)',
+          authority: publicKey.toBase58(),
+          fee: 2.5,
+          treasury: publicKey.toBase58(),
           totalListings: 0,
           totalSales: 0,
           totalVolume: 0,
-          averagePrice: 0,
-          uniqueOwners: 0,
-          floorPrice: 0
+          createdAt: new Date().toISOString()
         };
-        dispatch({ type: 'SET_STATS', payload: defaultStats });
-        dispatch({ type: 'SET_LISTINGS', payload: [] });
-        return;
+        dispatch({ type: 'SET_MARKETPLACE', payload: emptyMarketplace });
       }
 
       // Fetch all listings
@@ -391,8 +438,21 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       const listingAccounts = await fetchAllListings();
       console.log(`Found ${listingAccounts.length} listings`);
       
-      const nftListings = listingAccounts.map(listingAccount => 
-        convertListingToNFTListing(listingAccount, listingAccount.publicKey.toBase58())
+      // Batch fetch NFT metadata for better performance
+      const nftMints = listingAccounts.map(listing => listing.nftMint);
+      console.log('Fetching NFT metadata...');
+      const metadataMap = await batchFetchNFTMetadata(connection, nftMints);
+      console.log(`Fetched metadata for ${metadataMap.size} NFTs`);
+      
+      // Convert listings with real metadata
+      const nftListings = await Promise.all(
+        listingAccounts.map(listingAccount => 
+          convertListingToNFTListing(
+            listingAccount, 
+            listingAccount.publicKey.toBase58(),
+            metadataMap
+          )
+        )
       );
       dispatch({ type: 'SET_LISTINGS', payload: nftListings });
 
@@ -410,10 +470,37 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
 
       // Update user portfolio if wallet is connected
       const userListings = nftListings.filter(listing => listing.seller === publicKey.toBase58());
+      
+      // Fetch user's owned NFTs (with timeout and error handling)
+      let ownedNFTListings: NFTListing[] = [];
+      try {
+        console.log('Fetching user NFTs...');
+        
+        // Set a timeout for user NFT fetching to prevent hanging
+        const userNFTsPromise = fetchUserNFTs(connection, publicKey);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('User NFT fetch timeout')), 15000)
+        );
+        
+        const userNFTs = await Promise.race([userNFTsPromise, timeoutPromise]);
+        console.log(`Found ${userNFTs.length} owned NFTs`);
+        
+        // Convert to NFTListing format for consistent display
+        ownedNFTListings = userNFTs.map(nft => 
+          userNFTToListing(nft, publicKey.toBase58())
+        );
+      } catch (error) {
+        console.warn('Failed to fetch user NFTs, continuing without them:', error);
+        ownedNFTListings = [];
+      }
+      
+      // Calculate total portfolio value
+      const totalValue = userListings.reduce((sum, listing) => sum + listing.price, 0);
+      
       const userPortfolio: UserPortfolio = {
-        ownedNFTs: [], // TODO: Fetch user's NFTs
+        ownedNFTs: ownedNFTListings,
         listedNFTs: userListings,
-        totalValue: userListings.reduce((sum, listing) => sum + listing.price, 0),
+        totalValue: totalValue,
         totalListings: userListings.length
       };
       dispatch({ type: 'SET_USER_PORTFOLIO', payload: userPortfolio });
@@ -423,33 +510,59 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       console.error('Error refreshing data:', error);
       
-      // Show user-friendly error messages
+      // For real mode, show actual errors instead of fallback
+      console.log('Real mode enabled - showing actual blockchain errors');
+      
       if (error.message?.includes('Account does not exist')) {
-        dispatch({ type: 'SET_ERROR', payload: 'Marketplace not initialized. Please initialize the marketplace first.' });
+        dispatch({ type: 'SET_ERROR', payload: 'Marketplace not initialized. Please go to Admin panel and click "Initialize Marketplace".' });
+        // Set empty data but no fallback
+        dispatch({ type: 'SET_STATS', payload: fallbackStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        dispatch({ type: 'SET_USER_PORTFOLIO', payload: fallbackUserPortfolio });
       } else if (error.message?.includes('timeout') || error.message?.includes('fetch')) {
         dispatch({ type: 'SET_ERROR', payload: 'Network error. Please check your connection and try again.' });
+        dispatch({ type: 'SET_STATS', payload: fallbackStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        dispatch({ type: 'SET_USER_PORTFOLIO', payload: fallbackUserPortfolio });
       } else {
-        // For other errors, still show the app but with an error message
-        dispatch({ type: 'SET_ERROR', payload: `Error loading marketplace data: ${error.message}` });
-        console.warn('Marketplace data unavailable, showing app with limited functionality');
+        // Show real error for debugging
+        dispatch({ type: 'SET_ERROR', payload: `Blockchain Error: ${error.message}` });
+        dispatch({ type: 'SET_STATS', payload: fallbackStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        dispatch({ type: 'SET_USER_PORTFOLIO', payload: fallbackUserPortfolio });
       }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
+  // Load fallback data when the program is not available
+  const loadFallbackData = () => {
+    console.log('Loading fallback demo data...');
+    
+    dispatch({ type: 'SET_MARKETPLACE', payload: fallbackMarketplace });
+    dispatch({ type: 'SET_STATS', payload: fallbackStats });
+    dispatch({ type: 'SET_LISTINGS', payload: generateDemoListings() });
+    dispatch({ type: 'SET_USER_PORTFOLIO', payload: fallbackUserPortfolio });
+  };
+
   // Load marketplace data when wallet connects (but only if program is available)
   useEffect(() => {
     if (publicKey && connection && program) {
       console.log('Wallet and program ready, loading marketplace data...');
-      // Add a delay to ensure everything is properly initialized
+      debugConnectionState(connection, publicKey, program);
+      // Reduce delay and show immediate feedback
       const timeout = setTimeout(() => {
         refreshData().catch((error) => {
+          debugError(error, 'refreshData on wallet connect');
           console.warn('Failed to load marketplace data on wallet connect:', error);
-          // Don't block the UI if marketplace data fails to load
-          // The error is already handled in refreshData
+          // Real mode - show actual error
+          dispatch({ type: 'SET_ERROR', payload: error.message?.includes('Account does not exist') 
+            ? 'Marketplace not initialized. Please go to Admin panel and initialize it.'
+            : `Failed to load marketplace data: ${error.message}`
+          });
         });
-      }, 2000); // 2 second delay to ensure everything is ready
+      }, 500); // Reduced to 500ms delay
       
       return () => clearTimeout(timeout);
     } else if (!publicKey) {
@@ -460,8 +573,23 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'SET_STATS', payload: null as any });
       dispatch({ type: 'SET_USER_PORTFOLIO', payload: null as any });
       dispatch({ type: 'SET_ERROR', payload: null });
+      dispatch({ type: 'SET_LOADING', payload: false });
     } else if (publicKey && !program) {
       console.log('Wallet connected but program not ready yet...');
+      // Set a shorter timeout for program loading
+      const timeout = setTimeout(() => {
+        if (!program) {
+          console.log('Program not available - real mode error');
+          dispatch({ type: 'SET_ERROR', payload: 'Unable to connect to marketplace program. Check your wallet connection and network.' });
+          dispatch({ type: 'SET_LOADING', payload: false });
+          // Set empty state
+          dispatch({ type: 'SET_STATS', payload: fallbackStats });
+          dispatch({ type: 'SET_LISTINGS', payload: [] });
+          dispatch({ type: 'SET_USER_PORTFOLIO', payload: fallbackUserPortfolio });
+        }
+      }, 3000); // Reduced to 3 seconds
+      
+      return () => clearTimeout(timeout);
     }
   }, [publicKey, connection, program]);
 

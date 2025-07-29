@@ -2,7 +2,7 @@
 
 ![My Image](./images/img2.png)
 
-A decentralized NFT marketplace built on Solana blockchain with modern React frontend and Anchor smart contracts. Features a sleek dark purple theme, mobile-responsive design, and comprehensive marketplace functionality.
+A decentralized NFT marketplace built on Solana blockchain with modern React frontend and Anchor smart contracts. Features a comprehensive UX with accessibility-first design, real-time updates, advanced search, keyboard shortcuts, theme system, and performance monitoring - all optimized for mobile and desktop.
 
 ## 🚀 Features
 
@@ -12,6 +12,16 @@ A decentralized NFT marketplace built on Solana blockchain with modern React fro
 - **Real-time Data**: Live blockchain data fetching with automatic updates
 - **Portfolio Management**: Track owned NFTs, listings, and transaction history
 - **Favorites System**: Save and manage favorite NFTs with local storage persistence
+- **Advanced Search**: Comprehensive filtering by price, rarity, collections, and attributes
+- **Drag & Drop**: Intuitive NFT management with collection organization
+
+### Enhanced User Experience
+- **Accessibility First**: Full WCAG compliance with screen reader support, keyboard navigation, and ARIA attributes
+- **Real-time Updates**: Live marketplace events with Server-Sent Events simulation
+- **Global Keyboard Shortcuts**: Quick navigation and actions (Alt+1-4, Ctrl+K, Ctrl+N, ?)
+- **Enhanced Notifications**: Interactive toast messages with action buttons for marketplace events
+- **Theme System**: Light/Dark/System theme modes with CSS custom properties
+- **Performance Monitoring**: Development dashboard with component metrics and bundle analysis
 
 ### Technical Features
 - **Solana Integration**: Full Anchor program integration with PDA derivation
@@ -20,6 +30,7 @@ A decentralized NFT marketplace built on Solana blockchain with modern React fro
 - **Type Safety**: Full TypeScript implementation with IDL-generated types
 - **Error Handling**: Comprehensive error management and user feedback
 - **Production Ready**: Docker deployment with Nginx optimization
+- **Modern UX Patterns**: Focus management, skip navigation, live regions, and keyboard shortcuts
 
 ## 🏗 Architecture
 
@@ -39,8 +50,9 @@ A decentralized NFT marketplace built on Solana blockchain with modern React fro
 
 ### State Management
 - **React Context API** with useReducer for marketplace state
-- **Local Storage** for favorites and user preferences
-- **Real-time Updates** through blockchain event monitoring
+- **Local Storage** for favorites, themes, and user preferences
+- **Real-time Updates** through blockchain event monitoring and SSE simulation
+- **Performance Optimized** with React Query for data fetching and caching
 
 ## 📋 Prerequisites
 
@@ -187,6 +199,53 @@ The application will be available at `http://localhost`
 - `MobileModal`, `MobileTabs`, `MobileGrid`
 - Touch-optimized navigation and interactions
 
+## ⌨️ Keyboard Shortcuts
+
+The marketplace includes comprehensive keyboard shortcuts for power users:
+
+### Navigation
+- **Alt + 1**: Go to Dashboard
+- **Alt + 2**: Go to Explore
+- **Alt + 3**: Go to Portfolio
+- **Alt + 4**: Go to Favorites
+
+### Search & Actions
+- **Ctrl + K**: Focus search input
+- **Ctrl + Shift + F**: Toggle advanced search filters
+- **Ctrl + N**: Create new NFT listing
+- **Ctrl + R**: Refresh marketplace data
+
+### View & Utility
+- **G**: Toggle grid view
+- **Alt + D**: Toggle dark/light theme
+- **?**: Show keyboard shortcuts help
+- **Escape**: Close modals and cancel actions
+
+### Development (Dev mode only)
+- **Ctrl + Shift + P**: Toggle performance dashboard
+
+## 🎨 Accessibility Features
+
+The marketplace is built with accessibility as a first-class citizen:
+
+### Screen Reader Support
+- **ARIA Labels**: Comprehensive labeling for all interactive elements
+- **Live Regions**: Real-time announcements for marketplace events
+- **Semantic HTML**: Proper heading hierarchy and landmark elements
+- **Screen Reader Testing**: Tested with NVDA, JAWS, and VoiceOver
+
+### Keyboard Navigation
+- **Focus Management**: Proper focus visible indicators and trapping
+- **Skip Navigation**: Quick access to main content
+- **Tab Order**: Logical tab sequence throughout the application
+- **Keyboard Shortcuts**: Global shortcuts that don't interfere with screen readers
+
+### Visual Accessibility
+- **High Contrast**: WCAG AA compliant color ratios
+- **Reduced Motion**: Respects user's motion preferences
+- **Focus Indicators**: Clear visual focus states for all interactive elements
+- **Theme Support**: Both light and dark themes with proper contrast
+
 ## 🔐 Security Features
 
 ### Smart Contract Security
@@ -275,6 +334,65 @@ const {
 } = useSolanaProgram();
 ```
 
+#### `useTheme()`
+Hook for theme management with light/dark/system mode support.
+
+```typescript
+const {
+  theme,           // Current theme: 'light' | 'dark' | 'system'
+  resolvedTheme,   // Resolved theme: 'light' | 'dark' 
+  systemTheme,     // System preference: 'light' | 'dark'
+  setTheme,        // Set theme manually
+  toggleTheme      // Toggle between light/dark
+} = useTheme();
+```
+
+#### `useGlobalKeyboardShortcuts()`
+Hook for managing global keyboard shortcuts.
+
+```typescript
+const {
+  shortcuts,              // Array of all available shortcuts
+  isEnabled,             // Whether shortcuts are enabled
+  showShortcutsHelp,     // Help dialog visibility state
+  setShowShortcutsHelp,  // Toggle help dialog
+  toggleEnabled,         // Enable/disable shortcuts
+  enable,               // Enable shortcuts
+  disable               // Disable shortcuts
+} = useGlobalKeyboardShortcuts();
+```
+
+#### `useRealTimeUpdates()`
+Hook for real-time marketplace updates via Server-Sent Events.
+
+```typescript
+const {
+  isConnected,      // Connection status
+  connectionState,  // 'disconnected' | 'connecting' | 'connected' | 'error'
+  lastEvent,       // Last received event
+  reconnect        // Manual reconnection
+} = useRealTimeUpdates({
+  onNFTListed: (nft) => console.log('New NFT listed:', nft),
+  onNFTSold: (nft) => console.log('NFT sold:', nft),
+  onPriceChange: (change) => console.log('Price updated:', change),
+});
+```
+
+#### `useAdvancedSearch()`
+Hook for advanced search and filtering functionality.
+
+```typescript
+const {
+  filteredNFTs,     // Filtered NFT results
+  filters,          // Current filter state
+  setFilters,       // Update filters
+  clearFilters,     // Reset all filters
+  searchStats,      // Performance statistics
+  suggestions,      // Search suggestions
+  searchHistory     // Recent searches
+} = useAdvancedSearch(nfts);
+```
+
 #### `useMarketplace()`
 Context hook for marketplace state management.
 
@@ -333,9 +451,15 @@ await purchaseNFT(listingId);
 
 #### UI/UX Testing
 - [ ] Responsive design on mobile/tablet/desktop
-- [ ] Dark theme consistency
+- [ ] Light/Dark/System theme consistency
 - [ ] Loading states and error handling
 - [ ] Favorites functionality
+- [ ] Keyboard shortcuts functionality
+- [ ] Accessibility with screen readers
+- [ ] Advanced search and filtering
+- [ ] Drag-and-drop NFT management
+- [ ] Real-time updates display
+- [ ] Enhanced toast notifications
 
 ## 🤝 Contributing
 

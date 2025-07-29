@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Heart, ExternalLink } from 'lucide-react';
 import { NFTListing } from '../../types/marketplace';
 import { Button } from '../common/Button';
+import { OptimizedImage } from '../common/OptimizedImage';
 import { NFTDetailModal } from './NFTDetailModal';
 import { useFavorites } from '../../contexts/FavoritesContext';
 
@@ -14,36 +15,80 @@ interface NFTCardProps {
   isOwned?: boolean;
 }
 
-export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOwned = false }: NFTCardProps) {
+export const NFTCard = React.memo<NFTCardProps>(({ nft, onBuy, onList, onDelist, showActions = true, isOwned = false }) => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const { addToFavorites, removeFromFavorites, isFavorite } = useFavorites();
   
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  // Memoize expensive computations
+  const rarityAttribute = useMemo(() => 
+    nft.metadata.attributes?.find(attr => attr.trait_type === 'Rarity'),
+    [nft.metadata.attributes]
+  );
+  
+  const displayAttributes = useMemo(() => 
+    nft.metadata.attributes?.slice(0, 2) || [],
+    [nft.metadata.attributes]
+  );
+  
+  const isNFTFavorite = useMemo(() => 
+    isFavorite(nft.id),
+    [isFavorite, nft.id]
+  );
+  
+  // Memoize event handlers
+  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.target as HTMLImageElement;
     target.src = 'https://images.pexels.com/photos/4000000/pexels-photo-4000000.jpeg?auto=compress&cs=tinysrgb&w=400';
-  };
+  }, []);
 
-  const handleFavoriteToggle = (e: React.MouseEvent) => {
+  const handleFavoriteToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent modal from opening
-    if (isFavorite(nft.id)) {
+    if (isNFTFavorite) {
       removeFromFavorites(nft.id);
     } else {
       addToFavorites(nft);
     }
-  };
+  }, [isNFTFavorite, removeFromFavorites, addToFavorites, nft]);
+  
+  const handleModalOpen = useCallback(() => {
+    setShowDetailModal(true);
+  }, []);
+  
+  const handleModalClose = useCallback(() => {
+    setShowDetailModal(false);
+  }, []);
+  
+  const handleExplorerClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.open(`https://explorer.solana.com/address/${nft.nftMint}?cluster=devnet`, '_blank');
+  }, [nft.nftMint]);
+  
+  const handleBuyClick = useCallback(() => {
+    onBuy?.(nft);
+  }, [onBuy, nft]);
+  
+  const handleListClick = useCallback(() => {
+    onList?.(nft);
+  }, [onList, nft]);
+  
+  const handleDelistClick = useCallback(() => {
+    onDelist?.(nft);
+  }, [onDelist, nft]);
 
   return (
     <div className="card card-hover group animate-fade-in">
       {/* Image */}
       <div 
         className="relative aspect-square overflow-hidden rounded-t-xl cursor-pointer"
-        onClick={() => setShowDetailModal(true)}
+        onClick={handleModalOpen}
       >
-        <img
+        <OptimizedImage
           src={nft.metadata.image}
           alt={nft.metadata.name}
-          onError={handleImageError}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          className="group-hover:scale-105 transition-transform duration-300"
+          width={400}
+          height={400}
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         
@@ -54,7 +99,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
           >
             <Heart 
               className={`h-4 w-4 transition-colors ${
-                isFavorite(nft.id) 
+                isNFTFavorite 
                   ? 'text-red-400 fill-current' 
                   : 'text-white'
               }`} 
@@ -63,10 +108,10 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
         </div>
         
         {/* Rarity badge */}
-        {nft.metadata.attributes && (
+        {rarityAttribute && (
           <div className="absolute top-3 left-3">
             <span className="px-3 py-1 bg-gradient-to-r from-primary-600 to-primary-700 text-white text-xs font-medium rounded-lg backdrop-blur-sm border border-primary-500/30">
-              {nft.metadata.attributes.find(attr => attr.trait_type === 'Rarity')?.value || 'Common'}
+              {rarityAttribute.value || 'Common'}
             </span>
           </div>
         )}
@@ -87,10 +132,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
           </div>
           <button 
             className="ml-2 p-1 hover:bg-dark-300/50 rounded-lg transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(`https://explorer.solana.com/address/${nft.nftMint}?cluster=devnet`, '_blank');
-            }}
+            onClick={handleExplorerClick}
             title="View on Solana Explorer"
           >
             <ExternalLink className="h-4 w-4 text-gray-400" />
@@ -108,11 +150,11 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
         </div>
 
         {/* Attributes */}
-        {nft.metadata.attributes && nft.metadata.attributes.length > 0 && (
+        {displayAttributes.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-3">
-            {nft.metadata.attributes.slice(0, 2).map((attr, index) => (
+            {displayAttributes.map((attr, index) => (
               <span
-                key={index}
+                key={`${attr.trait_type}-${attr.value}-${index}`}
                 className="px-2 py-1 bg-primary-900/30 text-primary-300 text-xs rounded-lg border border-primary-800/30"
               >
                 {attr.trait_type}: {attr.value}
@@ -130,7 +172,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
                   variant="outline"
                   size="sm"
                   className="flex-1"
-                  onClick={() => onList && onList(nft)}
+                  onClick={handleListClick}
                 >
                   List for Sale
                 </Button>
@@ -138,7 +180,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => onDelist(nft)}
+                    onClick={handleDelistClick}
                   >
                     Delist
                   </Button>
@@ -149,7 +191,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
                 variant="primary"
                 size="sm"
                 className="flex-1"
-                onClick={() => onBuy && onBuy(nft)}
+                onClick={handleBuyClick}
               >
                 Buy Now
               </Button>
@@ -162,7 +204,7 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
       <NFTDetailModal
         nft={nft}
         isOpen={showDetailModal}
-        onClose={() => setShowDetailModal(false)}
+        onClose={handleModalClose}
         onBuy={onBuy}
         onList={onList}
         onDelist={onDelist}
@@ -170,4 +212,4 @@ export function NFTCard({ nft, onBuy, onList, onDelist, showActions = true, isOw
       />
     </div>
   );
-}
+});

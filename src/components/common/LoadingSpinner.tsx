@@ -14,13 +14,14 @@ export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) 
   };
 
   return (
-    <div className={clsx('flex items-center justify-center', className)}>
+    <div className={clsx('flex items-center justify-center', className)} role="status" aria-label="Loading">
       <div
         className={clsx(
           'animate-spin rounded-full border-2 border-dark-300 border-t-primary-500',
           sizeClasses[size]
         )}
       />
+      <span className="sr-only">Loading...</span>
     </div>
   );
 }

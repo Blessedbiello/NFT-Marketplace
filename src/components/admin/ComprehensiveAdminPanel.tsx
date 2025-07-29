@@ -29,12 +29,14 @@ import { StatsCard } from '../dashboard/StatsCard';
 
 export function ComprehensiveAdminPanel() {
   const { connected } = useWallet();
-  const { marketplace, stats, listings, updateFee, loading } = useMarketplace();
+  const { marketplace, stats, listings, updateFee, loading, initializeMarketplace } = useMarketplace();
   const [activeTab, setActiveTab] = useState<'overview' | 'settings' | 'users' | 'listings' | 'analytics' | 'activity'>('overview');
   const [newFee, setNewFee] = useState('');
   const [newRateLimit, setNewRateLimit] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [marketplaceName, setMarketplaceName] = useState('NFT-Nexus');
+  const [marketplaceFee, setMarketplaceFee] = useState('250'); // 2.5% in basis points
 
   // Mock admin data
   const adminData = {
@@ -75,6 +77,12 @@ export function ComprehensiveAdminPanel() {
     if (newFee) {
       await updateFee(parseFloat(newFee));
       setNewFee('');
+    }
+  };
+
+  const handleInitializeMarketplace = async () => {
+    if (marketplaceName && marketplaceFee) {
+      await initializeMarketplace(marketplaceName, parseInt(marketplaceFee));
     }
   };
 
@@ -167,14 +175,14 @@ export function ComprehensiveAdminPanel() {
           />
           <StatsCard
             title="Total Transactions"
-            value={adminData.totalTransactions.toLocaleString()}
+            value={(adminData.totalTransactions || 0).toLocaleString()}
             change="+12.8% this month"
             changeType="positive"
             icon={TrendingUp}
           />
           <StatsCard
             title="Active Users"
-            value={stats.activeUsers.toLocaleString()}
+            value={(stats?.uniqueOwners || 0).toLocaleString()}
             change="+8.1% this month"
             changeType="positive"
             icon={Users}
@@ -237,7 +245,7 @@ export function ComprehensiveAdminPanel() {
                             </div>
                             <p className="text-white text-sm">{activity.details}</p>
                             <p className="text-gray-400 text-xs mt-1">
-                              {activity.user} • {new Date(activity.timestamp).toLocaleString()}
+                              {activity.user} • {activity.timestamp ? new Date(activity.timestamp).toLocaleString() : 'Unknown time'}
                             </p>
                           </div>
                         </div>
@@ -284,6 +292,77 @@ export function ComprehensiveAdminPanel() {
           {/* Settings Tab */}
           {activeTab === 'settings' && (
             <div className="space-y-6">
+              {/* Marketplace Initialization */}
+              {!marketplace && (
+                <div className="card p-6 border-2 border-primary-500/50 bg-primary-900/10">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
+                      <Crown className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">Initialize Marketplace</h3>
+                      <p className="text-gray-400">Set up your marketplace for the first time</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Marketplace Name
+                      </label>
+                      <input
+                        type="text"
+                        value={marketplaceName}
+                        onChange={(e) => setMarketplaceName(e.target.value)}
+                        placeholder="Enter marketplace name"
+                        className="input-primary w-full"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Marketplace Fee (Basis Points)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1000"
+                        value={marketplaceFee}
+                        onChange={(e) => setMarketplaceFee(e.target.value)}
+                        placeholder="250 = 2.5%"
+                        className="input-primary w-full"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        1 basis point = 0.01% (e.g., 250 = 2.5%)
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-4">
+                      <div className="text-sm text-gray-400">
+                        <p>Fee: {marketplaceFee ? (parseInt(marketplaceFee) / 100).toFixed(2) : '0'}%</p>
+                        <p>Network: Solana Devnet</p>
+                      </div>
+                      <Button
+                        onClick={handleInitializeMarketplace}
+                        loading={loading}
+                        disabled={!marketplaceName || !marketplaceFee}
+                        className="bg-primary-600 hover:bg-primary-700"
+                      >
+                        <Crown className="h-4 w-4 mr-2" />
+                        Initialize Marketplace
+                      </Button>
+                    </div>
+
+                    <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                      <p className="text-sm text-blue-400">
+                        <strong>Important:</strong> This will create your marketplace on Solana Devnet. 
+                        Make sure you have enough SOL for transaction fees.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Fee Management */}
                 <div className="card p-6">
@@ -527,7 +606,7 @@ export function ComprehensiveAdminPanel() {
                       </div>
                       <p className="text-white text-sm">{activity.details}</p>
                       <p className="text-gray-400 text-xs mt-1">
-                        {activity.user} • {new Date(activity.timestamp).toLocaleString()}
+                        {activity.user} • {activity.timestamp ? new Date(activity.timestamp).toLocaleString() : 'Unknown time'}
                       </p>
                     </div>
                   </div>

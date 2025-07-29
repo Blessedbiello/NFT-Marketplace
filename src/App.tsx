@@ -1,18 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { WalletContextProvider } from './contexts/WalletContext';
 import { MarketplaceProvider } from './contexts/MarketplaceContext';
 import { FavoritesProvider } from './contexts/FavoritesContext';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { queryClient } from './lib/queryClient';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
-import { Dashboard } from './components/dashboard/Dashboard';
-import { Explore } from './components/explore/Explore';
-import { Portfolio } from './components/portfolio/Portfolio';
-import { AdminPanel } from './components/admin/AdminPanel';
-import { Favorites } from './components/favorites/Favorites';
+import { LoadingSpinner } from './components/common/LoadingSpinner';
+
+// Lazy load components for code splitting
+const Dashboard = React.lazy(() => import('./components/dashboard/Dashboard').then(module => ({
+  default: module.Dashboard
+})));
+const Explore = React.lazy(() => import('./components/explore/Explore').then(module => ({
+  default: module.Explore
+})));
+const Portfolio = React.lazy(() => import('./components/portfolio/Portfolio').then(module => ({
+  default: module.Portfolio
+})));
+const AdminPanel = React.lazy(() => import('./components/admin/AdminPanel').then(module => ({
+  default: module.AdminPanel
+})));
+const Favorites = React.lazy(() => import('./components/favorites/Favorites').then(module => ({
+  default: module.Favorites
+})));
 import { useMobileViewportHeight } from './components/mobile/MobileOptimizations';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { toast } from 'react-hot-toast';
+import { useComponentPerformance, useMemoryPerformance, useBundlePerformance } from './hooks/usePerformance';
+import { detectSlowRenders } from './utils/performance';
+import { useGlobalKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useRealTimeUpdates } from './hooks/useRealTimeUpdates';
+import { useSkipNavigation, useAriaLive } from './hooks/useAccessibility';
+
+// Lazy load development components
+const PerformanceDashboard = React.lazy(() => import('./components/dev/PerformanceDashboard').then(module => ({
+  default: module.PerformanceDashboard
+})));
+
+const KeyboardShortcutsHelp = React.lazy(() => import('./components/help/KeyboardShortcutsHelp').then(module => ({
+  default: module.KeyboardShortcutsHelp
+})));
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
@@ -81,11 +112,65 @@ class ErrorBoundary extends React.Component {
 function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
-  const [appError, setAppError] = useState<string | null>(null);
+  const [showPerformanceDashboard, setShowPerformanceDashboard] = useState(false);
   const { connected, connecting, disconnecting } = useWallet();
+  
+  // Performance monitoring
+  useComponentPerformance('AppContent');
+  useMemoryPerformance(10000); // Check memory every 10 seconds
+  useBundlePerformance();
   
   // Initialize mobile viewport height
   useMobileViewportHeight();
+  
+  // Initialize keyboard shortcuts
+  const { shortcuts, showShortcutsHelp, setShowShortcutsHelp } = useGlobalKeyboardShortcuts();
+  
+  // Initialize real-time updates
+  const { connectionState } = useRealTimeUpdates({
+    onNFTListed: (nft) => console.log('NFT listed:', nft),
+    onNFTSold: (nft) => console.log('NFT sold:', nft),
+    onPriceChange: (change) => console.log('Price change:', change),
+  });
+  
+  // Initialize accessibility features
+  const skipNavigationId = useSkipNavigation();
+  const { announceToScreenReader } = useAriaLive();
+  
+  // Initialize performance monitoring and event listeners
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      detectSlowRenders(16); // Detect renders slower than 16ms (60fps)
+    }
+    
+    // Handle navigation events from keyboard shortcuts
+    const handleNavigation = (event: CustomEvent) => {
+      const view = event.detail;
+      setCurrentView(view);
+      announceToScreenReader(`Navigated to ${view}`);
+    };
+    
+    // Handle other custom events
+    const handleTogglePerformanceDashboard = () => {
+      setShowPerformanceDashboard(prev => !prev);
+    };
+    
+    const handleRefreshData = () => {
+      // Trigger data refresh - this would normally call marketplace context refresh
+      console.log('Refreshing marketplace data...');
+    };
+    
+    // Add event listeners
+    window.addEventListener('navigate', handleNavigation as EventListener);
+    window.addEventListener('toggle-performance-dashboard', handleTogglePerformanceDashboard);
+    window.addEventListener('refresh-data', handleRefreshData);
+    
+    return () => {
+      window.removeEventListener('navigate', handleNavigation as EventListener);
+      window.removeEventListener('toggle-performance-dashboard', handleTogglePerformanceDashboard);
+      window.removeEventListener('refresh-data', handleRefreshData);
+    };
+  }, [announceToScreenReader]);
 
   // Debug wallet connection state
   useEffect(() => {
@@ -99,24 +184,36 @@ function AppContent() {
   }, [connected, connecting, disconnecting]);
 
   const renderCurrentView = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return <Dashboard onViewChange={setCurrentView} />;
-      case 'explore':
-      case 'trending':
-        return <Explore onViewChange={setCurrentView} />;
-      case 'my-nfts':
-      case 'my-listings':
-      case 'portfolio':
-        return <Portfolio onViewChange={setCurrentView} />;
-      case 'favorites':
-        return <Favorites onViewChange={setCurrentView} />;
-      case 'admin':
-      case 'settings':
-        return <AdminPanel onViewChange={setCurrentView} />;
-      default:
-        return <Dashboard onViewChange={setCurrentView} />;
-    }
+    const fallback = (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+
+    return (
+      <React.Suspense fallback={fallback}>
+        {(() => {
+          switch (currentView) {
+            case 'dashboard':
+              return <Dashboard onViewChange={setCurrentView} />;
+            case 'explore':
+            case 'trending':
+              return <Explore onViewChange={setCurrentView} />;
+            case 'my-nfts':
+            case 'my-listings':
+            case 'portfolio':
+              return <Portfolio onViewChange={setCurrentView} />;
+            case 'favorites':
+              return <Favorites onViewChange={setCurrentView} />;
+            case 'admin':
+            case 'settings':
+              return <AdminPanel onViewChange={setCurrentView} />;
+            default:
+              return <Dashboard onViewChange={setCurrentView} />;
+          }
+        })()}
+      </React.Suspense>
+    );
   };
 
   // Show loading state during wallet connection
@@ -134,6 +231,14 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-dark-gradient mobile-safe-area">
+      {/* Skip navigation link for accessibility */}
+      <a
+        href={`#${skipNavigationId}`}
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 z-50 bg-primary-600 text-white px-4 py-2 rounded-md"
+      >
+        Skip to main content
+      </a>
+      
       <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
       
       <div className="flex">
@@ -144,7 +249,7 @@ function AppContent() {
           onViewChange={setCurrentView}
         />
         
-        <main className="flex-1 p-6 lg:p-8">
+        <main id={skipNavigationId} className="flex-1 p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
             {renderCurrentView()}
           </div>
@@ -176,6 +281,41 @@ function AppContent() {
           },
         }}
       />
+
+      {/* Keyboard Shortcuts Help Dialog */}
+      <React.Suspense fallback={null}>
+        <KeyboardShortcutsHelp
+          isOpen={showShortcutsHelp}
+          onClose={() => setShowShortcutsHelp(false)}
+          shortcuts={shortcuts}
+        />
+      </React.Suspense>
+
+      {/* Development Performance Dashboard */}
+      {process.env.NODE_ENV === 'development' && (
+        <React.Suspense fallback={null}>
+          <PerformanceDashboard
+            isOpen={showPerformanceDashboard}
+            onClose={() => setShowPerformanceDashboard(false)}
+          />
+        </React.Suspense>
+      )}
+      
+      {/* Real-time connection status indicator */}
+      {connectionState !== 'connected' && (
+        <div className="fixed bottom-4 left-4 bg-dark-800 border border-yellow-500/30 rounded-lg px-3 py-2 text-sm z-40">
+          <div className="flex items-center space-x-2">
+            <div className={`w-2 h-2 rounded-full ${
+              connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
+              connectionState === 'error' ? 'bg-red-500' : 'bg-gray-500'
+            }`} />
+            <span className="text-gray-300">
+              {connectionState === 'connecting' ? 'Connecting...' :
+               connectionState === 'error' ? 'Connection error' : 'Disconnected'}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -183,13 +323,21 @@ function AppContent() {
 function App() {
   return (
     <ErrorBoundary>
-      <WalletContextProvider>
-        <MarketplaceProvider>
-          <FavoritesProvider>
-            <AppContent />
-          </FavoritesProvider>
-        </MarketplaceProvider>
-      </WalletContextProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <WalletContextProvider>
+            <MarketplaceProvider>
+              <FavoritesProvider>
+                <AppContent />
+                {/* Show React Query DevTools in development */}
+                {process.env.NODE_ENV === 'development' && (
+                  <ReactQueryDevtools initialIsOpen={false} />
+                )}
+              </FavoritesProvider>
+            </MarketplaceProvider>
+          </WalletContextProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   );
 }
