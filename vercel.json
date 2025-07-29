@@ -27,12 +27,20 @@
           "value": "1; mode=block"
         },
         {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
           "key": "Referrer-Policy",
           "value": "strict-origin-when-cross-origin"
         },
         {
           "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.devnet.solana.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://gateway.pinata.cloud wss://api.devnet.solana.com wss://api.mainnet-beta.solana.com; font-src 'self' data:; object-src 'none'; media-src 'self'; frame-src 'none';"
         }
       ]
     },

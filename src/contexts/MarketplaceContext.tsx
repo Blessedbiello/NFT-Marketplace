@@ -4,6 +4,23 @@ import { PublicKey } from '@solana/web3.js';
 import { toast } from 'react-hot-toast';
 import { Marketplace, NFTListing, MarketplaceStats, UserPortfolio } from '../types/marketplace';
 import { useSolanaProgram, MarketplaceAccount, ListingAccount } from '../hooks/useSolanaProgram';
+import { useTransactionRateLimit } from '../hooks/useRateLimit';
+import { 
+  validateNFTPrice, 
+  validatePublicKey, 
+  validateMarketplaceFee, 
+  validateMarketplaceName,
+  ValidationError 
+} from '../utils/validation';
+import { 
+  classifyError, 
+  logError, 
+  formatErrorForUser,
+  MarketplaceError,
+  TransactionError,
+  WalletConnectionError 
+} from '../utils/errors';
+import { TRANSACTION_SAFETY, SUCCESS_MESSAGES } from '../utils/constants';
 
 interface MarketplaceState {
   marketplace: Marketplace | null;
@@ -83,6 +100,9 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   
+  // Rate limiting for transactions
+  const transactionRateLimit = useTransactionRateLimit();
+  
   // Use useSolanaProgram hook safely
   const solanaProgram = useSolanaProgram();
   
@@ -118,56 +138,114 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  const initializeMarketplace = async (name: string, fee: number) => {
-    if (!initMarketplace || !publicKey) {
-      toast.error('Wallet not connected');
-      return;
+  // Secure transaction wrapper
+  const executeTransaction = async <T,>(
+    operation: () => Promise<T>,
+    operationName: string,
+    successMessage: string
+  ): Promise<T | null> => {
+    // Check wallet connection
+    if (!publicKey) {
+      const error = new WalletConnectionError();
+      logError(error, operationName);
+      toast.error(formatErrorForUser(error));
+      throw error;
     }
-    
+
+    // Check rate limit
+    if (!transactionRateLimit.canMakeCall()) {
+      const timeUntilReset = transactionRateLimit.getTimeUntilReset();
+      const error = new MarketplaceError(
+        `Too many transactions. Please wait ${Math.ceil(timeUntilReset / 1000)} seconds.`,
+        'RATE_LIMIT_ERROR'
+      );
+      logError(error, operationName);
+      toast.error(formatErrorForUser(error));
+      throw error;
+    }
+
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
-    
+
     try {
-      const txSignature = await initMarketplace(name, fee);
-      if (txSignature) {
-        toast.success('Marketplace initialized successfully!');
-        await refreshData();
-      }
+      // Record the transaction attempt
+      transactionRateLimit.recordCall();
+
+      // Execute with timeout
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Transaction timeout')), TRANSACTION_SAFETY.TIMEOUT_MS)
+      );
+
+      const result = await Promise.race([operation(), timeoutPromise]);
+
+      // Success
+      toast.success(successMessage);
+      await refreshData();
+      return result;
+
     } catch (error: any) {
-      console.error('Error initializing marketplace:', error);
-      const errorMessage = error.message || 'Failed to initialize marketplace';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
-      toast.error(errorMessage);
+      const marketplaceError = classifyError(error);
+      logError(marketplaceError, operationName);
+      
+      const userMessage = formatErrorForUser(marketplaceError);
+      dispatch({ type: 'SET_ERROR', payload: userMessage });
+      toast.error(userMessage);
+      
+      throw marketplaceError;
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
-  const listNFT = async (nftMint: string, price: number) => {
-    if (!listNft || !publicKey) {
-      toast.error('Wallet not connected');
-      return;
-    }
-
-    dispatch({ type: 'SET_LOADING', payload: true });
-    dispatch({ type: 'SET_ERROR', payload: null });
-
+  const initializeMarketplace = async (name: string, fee: number) => {
     try {
-      const nftMintPubkey = new PublicKey(nftMint);
-      const priceInLamports = solToLamports(price);
-      
-      const txSignature = await listNft(nftMintPubkey, priceInLamports);
-      if (txSignature) {
-        toast.success('NFT listed successfully!');
-        await refreshData();
+      // Validate inputs
+      validateMarketplaceName(name);
+      validateMarketplaceFee(fee);
+
+      if (!initMarketplace) {
+        throw new Error('Marketplace initialization function not available');
       }
-    } catch (error: any) {
-      console.error('Error listing NFT:', error);
-      const errorMessage = error.message || 'Failed to list NFT';
-      dispatch({ type: 'SET_ERROR', payload: errorMessage });
-      toast.error(errorMessage);
-    } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+
+      await executeTransaction(
+        () => initMarketplace(name, fee),
+        'initializeMarketplace',
+        SUCCESS_MESSAGES.MARKETPLACE_INITIALIZED
+      );
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        toast.error(error.message);
+        logError(error, 'initializeMarketplace');
+      }
+      // Other errors are handled by executeTransaction
+    }
+  };
+
+  const listNFT = async (nftMint: string, price: number) => {
+    try {
+      // Validate inputs
+      validatePublicKey(nftMint);
+      validateNFTPrice(price);
+
+      if (!listNft) {
+        throw new Error('NFT listing function not available');
+      }
+
+      await executeTransaction(
+        async () => {
+          const nftMintPubkey = new PublicKey(nftMint);
+          const priceInLamports = solToLamports(price);
+          return await listNft(nftMintPubkey, priceInLamports);
+        },
+        'listNFT',
+        SUCCESS_MESSAGES.NFT_LISTED
+      );
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        toast.error(error.message);
+        logError(error, 'listNFT');
+      }
+      // Other errors are handled by executeTransaction
     }
   };
 
