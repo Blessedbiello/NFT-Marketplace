@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "description": "A modern NFT marketplace built on Solana",
-  "homepage": "https://your-domain.com",
+  "homepage": "https://nft-marketplace-blessedbiello.vercel.app",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/nft-marketplace.git"
+    "url": "https://github.com/Blessedbiello/NFT-Marketplace.git"
   },
   "scripts": {
     "dev": "vite --host",
