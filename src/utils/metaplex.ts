@@ -61,34 +61,116 @@ export async function fetchNFTMetadata(
   mintPublicKey: PublicKey
 ): Promise<ParsedMetadata | null> {
   try {
+    console.log(`🔍 [Metaplex] Fetching on-chain metadata for: ${mintPublicKey.toBase58()}`);
     const [metadataPDA] = getMetadataPDA(mintPublicKey);
     
     // Fetch the metadata account
     const metadataAccount = await connection.getAccountInfo(metadataPDA);
     
     if (!metadataAccount) {
-      console.warn(`No metadata account found for mint: ${mintPublicKey.toBase58()}`);
+      console.warn(`❌ [Metaplex] No metadata account found for mint: ${mintPublicKey.toBase58()}`);
       return null;
     }
 
+    console.log(`✅ [Metaplex] Metadata account found, size: ${metadataAccount.data.length} bytes`);
+
     // Parse the metadata account data
-    const metadata = Metadata.deserialize(metadataAccount.data);
-    
-    return {
-      updateAuthority: metadata[0].updateAuthority,
-      mint: metadata[0].mint,
-      name: metadata[0].data.name.replace(/\0/g, '').trim(),
-      symbol: metadata[0].data.symbol.replace(/\0/g, '').trim(),
-      uri: metadata[0].data.uri.replace(/\0/g, '').trim(),
-      sellerFeeBasisPoints: metadata[0].data.sellerFeeBasisPoints,
-      creators: metadata[0].data.creators?.map(creator => ({
-        address: creator.address,
-        verified: creator.verified,
-        share: creator.share,
-      })) || null,
-    };
+    try {
+      // Try modern approach first
+      let metadata;
+      try {
+        metadata = Metadata.deserialize(metadataAccount.data)[0];
+      } catch (modernError) {
+        // Fallback to alternative parsing
+        console.log(`⚠️ [Metaplex] Modern deserialize failed, trying alternative approach...`);
+        
+        // Try alternative parsing method
+        const data = metadataAccount.data;
+        if (data.length < 100) {
+          throw new Error('Metadata account too small');
+        }
+        
+        // Basic manual parsing (simplified version)
+        let offset = 1; // Skip version byte
+        
+        // Skip update authority (32 bytes)
+        offset += 32;
+        
+        // Skip mint (32 bytes) 
+        offset += 32;
+        
+        // Parse name length and name
+        const nameLength = data.readUInt32LE(offset);
+        offset += 4;
+        
+        if (nameLength > 200 || offset + nameLength > data.length) {
+          throw new Error('Invalid name length');
+        }
+        
+        const nameBytes = data.subarray(offset, offset + nameLength);
+        const name = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+        offset += nameLength;
+        
+        // Parse symbol length and symbol
+        const symbolLength = data.readUInt32LE(offset);
+        offset += 4;
+        
+        if (symbolLength > 20 || offset + symbolLength > data.length) {
+          throw new Error('Invalid symbol length');
+        }
+        
+        const symbolBytes = data.subarray(offset, offset + symbolLength);
+        const symbol = Buffer.from(symbolBytes).toString('utf8').replace(/\0/g, '').trim();
+        offset += symbolLength;
+        
+        // Parse URI length and URI
+        const uriLength = data.readUInt32LE(offset);
+        offset += 4;
+        
+        if (uriLength > 500 || offset + uriLength > data.length) {
+          throw new Error('Invalid URI length');
+        }
+        
+        const uriBytes = data.subarray(offset, offset + uriLength);
+        const uri = Buffer.from(uriBytes).toString('utf8').replace(/\0/g, '').trim();
+        
+        metadata = {
+          data: {
+            name,
+            symbol,
+            uri,
+            sellerFeeBasisPoints: 500, // Default 5%
+            creators: null
+          },
+          mint: mintPublicKey,
+          updateAuthority: mintPublicKey // Fallback
+        };
+      }
+      
+      console.log(`✅ [Metaplex] Successfully parsed metadata`);
+      
+      const result = {
+        updateAuthority: metadata.updateAuthority,
+        mint: metadata.mint,
+        name: metadata.data.name,
+        symbol: metadata.data.symbol,
+        uri: metadata.data.uri,
+        sellerFeeBasisPoints: metadata.data.sellerFeeBasisPoints || 500,
+        creators: metadata.data.creators?.map(creator => ({
+          address: creator.address,
+          verified: creator.verified,
+          share: creator.share,
+        })) || null,
+      };
+      
+      console.log(`📋 [Metaplex] Parsed - Name: "${result.name}", URI: "${result.uri}"`);
+      return result;
+    } catch (deserializeError) {
+      console.error(`❌ [Metaplex] Deserialization error for ${mintPublicKey.toBase58()}:`, deserializeError);
+      return null;
+    }
   } catch (error) {
-    console.error(`Error fetching metadata for mint ${mintPublicKey.toBase58()}:`, error);
+    console.error(`❌ [Metaplex] Error fetching metadata for mint ${mintPublicKey.toBase58()}:`, error);
     return null;
   }
 }
@@ -98,20 +180,28 @@ export async function fetchNFTMetadata(
  */
 export async function fetchJSONMetadata(uri: string): Promise<NFTMetadata | null> {
   try {
+    console.log(`🌐 [JSON] Fetching JSON metadata from: ${uri}`);
+    
     // Handle IPFS URIs
     let fetchUrl = uri;
     if (uri.startsWith('ipfs://')) {
       // Use a public IPFS gateway
       fetchUrl = uri.replace('ipfs://', 'https://ipfs.io/ipfs/');
+      console.log(`🔄 [JSON] Converted IPFS URI to: ${fetchUrl}`);
     }
 
     const response = await fetch(fetchUrl);
+    console.log(`📡 [JSON] HTTP Response: ${response.status} ${response.statusText}`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     const metadata = await response.json();
+    console.log(`✅ [JSON] Successfully parsed JSON metadata - Name: "${metadata.name}"`);
+    console.log(`🖼️  [JSON] Image URL: "${metadata.image}"`);
+    console.log(`📝 [JSON] Description: "${metadata.description}"`);
+    console.log(`🏷️  [JSON] Attributes: ${metadata.attributes?.length || 0} traits`);
     
     // Validate that we have at least basic metadata
     if (!metadata.name) {

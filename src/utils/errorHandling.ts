@@ -47,10 +47,10 @@ const ERROR_MESSAGES: Record<number, string> = {
   110: 'Transaction failed to confirm',
 
   // RPC errors
-  -32002: 'Transaction simulation failed',
-  -32003: 'Transaction was not confirmed',
-  -32005: 'Node is unhealthy',
-  -32007: 'Transaction expired',
+  '-32002': 'Transaction simulation failed',
+  '-32003': 'Transaction was not confirmed',
+  '-32005': 'Node is unhealthy',
+  '-32007': 'Transaction expired',
 };
 
 export function parseBlockchainError(error: any): BlockchainError {

@@ -23,6 +23,7 @@ import {
 import { TRANSACTION_SAFETY, SUCCESS_MESSAGES } from '../utils/constants';
 import { getCompleteNFTMetadata, batchFetchNFTMetadata } from '../utils/metaplex';
 import { fetchUserNFTs, userNFTToListing, calculatePortfolioValue } from '../utils/userNFTs';
+import { fetchWalletNFTsStandalone } from '../utils/standaloneNFTFetcher';
 import { 
   fallbackMarketplace, 
   fallbackStats, 
@@ -233,8 +234,13 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
       validateMarketplaceFee(fee);
 
       if (!initMarketplace) {
-        throw new Error('Marketplace initialization function not available');
+        console.error('❌ Marketplace initialization function not available');
+        console.error('Program status:', { program, initMarketplace });
+        toast.error('Program not initialized. Please refresh the page and ensure your wallet is connected.');
+        throw new Error('Marketplace initialization function not available - program not ready');
       }
+
+      console.log('🚀 Starting marketplace initialization...', { name, fee });
 
       await executeTransaction(
         () => initMarketplace(name, fee),
@@ -371,26 +377,80 @@ export function MarketplaceProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshData = async () => {
-    // Don't try to fetch if we don't have the necessary functions or wallet isn't connected
-    if (!fetchMarketplace || !fetchAllListings || !publicKey || !program) {
-      console.warn('Marketplace functions or wallet not available, skipping data refresh');
-      // Set default empty state so UI doesn't hang
-      const defaultStats: MarketplaceStats = {
-        totalListings: 0,
-        totalSales: 0,
-        totalVolume: 0,
-        averagePrice: 0,
-        uniqueOwners: 0,
-        floorPrice: 0
-      };
-      dispatch({ type: 'SET_STATS', payload: defaultStats });
-      dispatch({ type: 'SET_LISTINGS', payload: [] });
-      dispatch({ type: 'SET_USER_PORTFOLIO', payload: {
-        ownedNFTs: [],
-        listedNFTs: [],
-        totalValue: 0,
-        totalListings: 0
-      } as UserPortfolio });
+    // Check if we have program functions available
+    const hasProgramFunctions = fetchMarketplace && fetchAllListings && program;
+    
+    if (!publicKey) {
+      console.warn('Wallet not connected, skipping data refresh');
+      return;
+    }
+
+    // If program functions are not available, use standalone NFT fetching
+    if (!hasProgramFunctions) {
+      console.log('🔄 Program functions not available, using standalone NFT fetching...');
+      
+      dispatch({ type: 'SET_LOADING', payload: true });
+      
+      try {
+        // Use standalone NFT fetcher
+        const userNFTs = await fetchWalletNFTsStandalone(
+          publicKey.toBase58(),
+          connection.rpcEndpoint
+        );
+        
+        // Convert to NFTListing format for consistent display
+        const ownedNFTListings = userNFTs.map(nft => 
+          userNFTToListing(nft, publicKey.toBase58())
+        );
+        
+        // Set user portfolio with fetched NFTs
+        const userPortfolio: UserPortfolio = {
+          ownedNFTs: ownedNFTListings,
+          listedNFTs: [], // No marketplace listings available without program
+          totalValue: 0, // Can't calculate without listings
+          totalListings: 0
+        };
+        
+        dispatch({ type: 'SET_USER_PORTFOLIO', payload: userPortfolio });
+        
+        // Set basic stats
+        const defaultStats: MarketplaceStats = {
+          totalListings: 0,
+          totalSales: 0,
+          totalVolume: 0,
+          averagePrice: 0,
+          uniqueOwners: 0,
+          floorPrice: 0
+        };
+        dispatch({ type: 'SET_STATS', payload: defaultStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        
+        console.log(`✅ Standalone mode: Found ${userNFTs.length} NFTs in wallet`);
+        
+      } catch (error) {
+        console.error('❌ Standalone NFT fetching failed:', error);
+        dispatch({ type: 'SET_ERROR', payload: `Failed to fetch NFTs: ${error.message}` });
+        
+        // Set empty state
+        dispatch({ type: 'SET_STATS', payload: {
+          totalListings: 0,
+          totalSales: 0,
+          totalVolume: 0,
+          averagePrice: 0,
+          uniqueOwners: 0,
+          floorPrice: 0
+        } as MarketplaceStats });
+        dispatch({ type: 'SET_LISTINGS', payload: [] });
+        dispatch({ type: 'SET_USER_PORTFOLIO', payload: {
+          ownedNFTs: [],
+          listedNFTs: [],
+          totalValue: 0,
+          totalListings: 0
+        } as UserPortfolio });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+      
       return;
     }
 

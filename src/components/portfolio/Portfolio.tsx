@@ -32,7 +32,7 @@ interface PortfolioProps {
 
 export function Portfolio({ onViewChange }: PortfolioProps = {}) {
   const { connected } = useWallet();
-  const { listings, listNFT, delistNFT } = useMarketplace();
+  const { listings, listNFT, delistNFT, userPortfolio, loading } = useMarketplace();
   const [activeTab, setActiveTab] = useState<'owned' | 'listed' | 'purchases' | 'analytics'>('owned');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchTerm, setSearchTerm] = useState('');
@@ -60,9 +60,22 @@ export function Portfolio({ onViewChange }: PortfolioProps = {}) {
     );
   }
 
-  // Mock user data - replace with actual user portfolio data
-  const userOwnedNFTs = listings.slice(0, 8);
-  const userListedNFTs = listings.slice(8, 12);
+  // Loading state while fetching user portfolio
+  if (loading && !userPortfolio) {
+    return (
+      <div className="text-center py-12 animate-fade-in">
+        <div className="w-16 h-16 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <h2 className="text-xl font-semibold text-white mb-2">Loading Your Portfolio</h2>
+        <p className="text-gray-400">
+          Fetching your NFTs from the blockchain...
+        </p>
+      </div>
+    );
+  }
+
+  // Use real user portfolio data
+  const userOwnedNFTs = userPortfolio?.ownedNFTs || [];
+  const userListedNFTs = userPortfolio?.listedNFTs || [];
   const userPurchases = [
     { 
       id: '1', 
@@ -130,6 +143,9 @@ export function Portfolio({ onViewChange }: PortfolioProps = {}) {
     );
   }, [userListedNFTs, searchTerm, filterCollection]);
 
+  // Show empty state if no NFTs found
+  const hasNoNFTs = userOwnedNFTs.length === 0 && userListedNFTs.length === 0 && !loading;
+
   // Portfolio statistics
   const portfolioValue = userOwnedNFTs.reduce((sum, nft) => sum + nft.price, 0);
   const totalSpent = userPurchases.reduce((sum, purchase) => sum + purchase.purchasePrice, 0);
@@ -167,6 +183,49 @@ export function Portfolio({ onViewChange }: PortfolioProps = {}) {
     setNFTToList(nft);
     setShowListModal(true);
   };
+
+  // Empty state for no NFTs
+  if (hasNoNFTs) {
+    return (
+      <div className="space-y-8 animate-fade-in">
+        <div>
+          <h1 className="text-3xl font-bold text-white">My Portfolio</h1>
+          <p className="text-gray-400 mt-2">Manage your NFT collection and trading activity</p>
+        </div>
+        
+        <div className="text-center py-16">
+          <div className="w-24 h-24 bg-gradient-to-r from-primary-600/20 to-primary-700/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Eye className="h-12 w-12 text-primary-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">No NFTs Found</h2>
+          <p className="text-gray-400 mb-8 max-w-md mx-auto">
+            Your wallet doesn't contain any NFTs yet. Purchase some NFTs from the marketplace or mint new ones to get started.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button 
+              variant="primary" 
+              onClick={() => onViewChange?.('explore')}
+            >
+              Explore Marketplace
+            </Button>
+            <Button 
+              variant="secondary"
+              onClick={() => window.location.reload()}
+            >
+              Refresh Portfolio
+            </Button>
+          </div>
+          
+          <div className="mt-8 p-4 bg-dark-700/50 rounded-lg border border-primary-800/30 max-w-md mx-auto">
+            <p className="text-sm text-gray-400">
+              <strong className="text-primary-400">Tip:</strong> Make sure your wallet contains NFTs with Metaplex metadata. 
+              The app automatically detects standard Solana NFTs.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-fade-in">

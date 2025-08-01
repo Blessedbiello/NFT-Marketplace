@@ -7,68 +7,11 @@ import MarketplaceIDL from '../idl/anchor_nft_marketplace.json';
 
 // Load configuration from environment variables
 const PROGRAM_ID = new PublicKey(
-  import.meta.env.VITE_PROGRAM_ID || 'FvdEiEPJUEMUZ7HCkK2gPfYGFXCbUB68mTJufdC9BjC5'
+  import.meta.env.VITE_PROGRAM_ID || '6MAZYi6WaiB8ztJuJjoAVkbQDxZxfuQuJR3KfrfZncih'
 );
 
-// Fix the IDL format by merging accounts with their type definitions
-const fixIDLFormat = (idl: any): Idl => {
-  const fixedIDL = JSON.parse(JSON.stringify(idl));
-  
-  // Find type definitions for accounts
-  const typeDefinitions: Record<string, any> = {};
-  if (fixedIDL.types && Array.isArray(fixedIDL.types)) {
-    fixedIDL.types.forEach((type: any) => {
-      if (type.name) {
-        typeDefinitions[type.name] = type;
-      }
-    });
-  }
-  
-  // Fix accounts section by adding type info and calculating sizes
-  if (fixedIDL.accounts && Array.isArray(fixedIDL.accounts)) {
-    fixedIDL.accounts = fixedIDL.accounts.map((account: any) => {
-      // Find the corresponding type definition
-      const typeDef = typeDefinitions[account.name];
-      
-      if (typeDef && typeDef.type) {
-        // Add type information
-        account.type = typeDef.type;
-        
-        // Calculate size based on fields
-        let size = 8; // Discriminator
-        if (typeDef.type.fields && Array.isArray(typeDef.type.fields)) {
-          typeDef.type.fields.forEach((field: any) => {
-            switch (field.type) {
-              case 'pubkey': size += 32; break;
-              case 'u64': case 'i64': size += 8; break;
-              case 'u32': case 'i32': size += 4; break;
-              case 'u16': case 'i16': size += 2; break;
-              case 'u8': case 'i8': case 'bool': size += 1; break;
-              default: size += 8; // Conservative estimate
-            }
-          });
-        }
-        account.size = size;
-      } else {
-        // Fallback for unknown accounts
-        account.size = 1000;
-      }
-      
-      return account;
-    });
-  }
-  
-  return fixedIDL as Idl;
-};
-
-// Use the original IDL first, then try fixed version if needed
-let MARKETPLACE_IDL: Idl;
-try {
-  MARKETPLACE_IDL = MarketplaceIDL as Idl;
-} catch (error) {
-  console.log('IDL needs format fixing, applying compatibility fixes...');
-  MARKETPLACE_IDL = fixIDLFormat(MarketplaceIDL);
-}
+// Use the IDL directly - convert to proper Anchor format for 0.31.0+
+const MARKETPLACE_IDL = MarketplaceIDL as any;
 
 // Default marketplace name for PDA derivation
 const DEFAULT_MARKETPLACE_NAME = import.meta.env.VITE_MARKETPLACE_NAME || 'NFT-Nexus';
@@ -94,8 +37,6 @@ export interface MarketplaceAccount {
   treasury: PublicKey;
   treasuryBump: number;
   name: string;
-  lastActionTimestamp: number;
-  rateLimitInterval: number;
 }
 
 export interface ListingAccount {
@@ -129,30 +70,25 @@ export function useSolanaProgram() {
   }, [connection, publicKey, signTransaction, signAllTransactions]);
 
   const program = useMemo(() => {
-    if (!provider) return null;
+    if (!provider) {
+      console.log('⏳ Provider not ready yet...');
+      return null;
+    }
     
     try {
-      // Create the program with error handling
-      console.log('Creating Anchor program with IDL...');
+      console.log('Creating Anchor program with fixed IDL...');
+      console.log('Program ID:', PROGRAM_ID.toBase58());
+      console.log('Provider connected:', provider.publicKey?.toBase58());
       
-      // Try with original IDL first
-      let prog;
-      try {
-        prog = new Program(MARKETPLACE_IDL, PROGRAM_ID, provider);
-      } catch (idlError) {
-        console.log('Original IDL failed, trying with fixed format...');
-        const fixedIDL = fixIDLFormat(MarketplaceIDL);
-        prog = new Program(fixedIDL, PROGRAM_ID, provider);
-      }
-      
-      console.log('Anchor program created successfully');
+      const prog = new Program(MARKETPLACE_IDL, provider);
+      console.log('✅ Anchor program created successfully');
+      console.log('Available methods:', Object.keys(prog.methods));
       return prog;
     } catch (error) {
-      console.error('Error creating Anchor program:', error);
+      console.error('❌ Error creating Anchor program:', error);
       console.error('Provider:', provider);
       console.error('Program ID:', PROGRAM_ID.toBase58());
       
-      // Log the specific error details
       if (error instanceof Error) {
         console.error('Error message:', error.message);
         console.error('Error stack:', error.stack);
@@ -220,7 +156,6 @@ export function useSolanaProgram() {
           marketplace: marketplacePDA,
           treasury: treasuryPDA,
           systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
 
@@ -291,17 +226,18 @@ export function useSolanaProgram() {
         .accounts({
           taker: publicKey,
           maker: seller,
-          makerNftMint: nftMint,
           marketplace: marketplacePDA,
-          takerAta: takerAta,
+          takerNftAta: takerAta,
           vault: vaultPDA,
           listing: listingPDA,
-          metadata: metadataPDA,
           treasury: treasuryPDA,
+          makerNftMint: nftMint,
+          metadata: metadataPDA,
+          masterEdition: getMasterEditionPDA(nftMint)[0],
           metadataProgram: METADATA_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
 
@@ -364,8 +300,6 @@ export function useSolanaProgram() {
         .accounts({
           admin: publicKey,
           marketplace: marketplacePDA,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
 
@@ -376,52 +310,8 @@ export function useSolanaProgram() {
     }
   };
 
-  const updateAuthority = async (
-    newAuthority: PublicKey
-  ): Promise<TransactionSignature | null> => {
-    if (!program || !publicKey) return null;
 
-    try {
-      const [marketplacePDA] = getMarketplacePDA();
-
-      const tx = await program.methods
-        .updateAuthority()
-        .accounts({
-          currentAuthority: publicKey,
-          marketplace: marketplacePDA,
-          newAuthority: newAuthority,
-        })
-        .rpc();
-
-      return tx;
-    } catch (error) {
-      console.error('Error updating authority:', error);
-      throw error;
-    }
-  };
-
-  const updateRateLimit = async (
-    rateLimitInterval: number
-  ): Promise<TransactionSignature | null> => {
-    if (!program || !publicKey) return null;
-
-    try {
-      const [marketplacePDA] = getMarketplacePDA();
-
-      const tx = await program.methods
-        .updateRateLimit(new BN(rateLimitInterval))
-        .accounts({
-          authority: publicKey,
-          marketplace: marketplacePDA,
-        })
-        .rpc();
-
-      return tx;
-    } catch (error) {
-      console.error('Error updating rate limit:', error);
-      throw error;
-    }
-  };
+  // Note: updateRateLimit and updateAuthority are not available in current IDL
 
   // Fetch account data
   const fetchMarketplace = async (name: string = DEFAULT_MARKETPLACE_NAME): Promise<MarketplaceAccount | null> => {
@@ -495,8 +385,6 @@ export function useSolanaProgram() {
     purchaseNft,
     delistNft,
     updateMarketplaceFee,
-    updateAuthority,
-    updateRateLimit,
     
     // Account fetching
     fetchMarketplace,

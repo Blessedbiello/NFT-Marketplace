@@ -28,6 +28,7 @@ export async function fetchUserNFTs(
 ): Promise<UserNFT[]> {
   try {
     console.log(`🔍 [NFT Discovery] Fetching NFTs for user: ${userPublicKey.toBase58()}`);
+    console.log(`🌐 [NFT Discovery] RPC Endpoint: ${connection.rpcEndpoint}`);
 
     // Get all token accounts for the user
     const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
@@ -95,6 +96,11 @@ export async function fetchUserNFTs(
           const metadata = await getCompleteNFTMetadata(connection, mintPubkey);
           if (!metadata) {
             console.log(`   ⚠️  [${batchIndex + 1}] Failed to fetch metadata for ${mintString}`);
+            return null;
+          }
+
+          if (!metadata.json) {
+            console.log(`   ⚠️  [${batchIndex + 1}] No JSON metadata for ${mintString}`);
             return null;
           }
 
